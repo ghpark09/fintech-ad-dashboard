@@ -2,9 +2,28 @@
 base = "light"
 primaryColor = "#4F46E5"
 backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F5F6FA"
-textColor = "#1E2230"
-font = "sans serif"
+secondaryBackgroundColor = "#F4F5FB"
+textColor = "#1B1F2A"
+borderColor = "#E6E8F0"
+linkColor = "#4F46E5"
+linkUnderline = false
+baseRadius = "12px"
+buttonRadius = "10px"
+showWidgetBorder = true
+showSidebarBorder = true
+baseFontSize = 15
+headingFontSizes = ["34px", "25px", "20px", "17px", "15px", "13px"]
+headingFontWeights = [700, 700, 600, 600, 600, 600]
+chartCategoricalColors = ["#4F46E5", "#10B981", "#3B82F6", "#F59E0B", "#EF4444", "#8B5CF6", "#64748B"]
+chartSequentialColors = ["#EEF0FF", "#DDE1FE", "#C3C9FC", "#A5ADF8", "#838DF1", "#6670E8", "#4F46E5", "#3F37C0", "#322B96", "#241F6E"]
+dataframeHeaderBackgroundColor = "#F4F5FB"
+
+[theme.sidebar]
+backgroundColor = "#F8F9FD"
+secondaryBackgroundColor = "#EEF0F8"
+borderColor = "#E6E8F0"
+textColor = "#1B1F2A"
+primaryColor = "#4F46E5"
 
 [server]
 runOnSave = true

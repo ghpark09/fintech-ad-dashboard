@@ -13,8 +13,11 @@ import streamlit as st
 from metrics import (BASE, CHANNEL_ORDER, FUNNEL, add_rates, agg, funnel_steps,
                      load_data)
 from insights import INSIGHTS
+import ui
 
-st.set_page_config(page_title="핀테크 광고 성과 대시보드", page_icon="📊", layout="wide")
+st.set_page_config(page_title="핀테크 광고 성과 대시보드",
+                   page_icon=":material/insights:", layout="wide")
+ui.inject()
 
 PALETTE = {"구글": "#4285F4", "페이스북": "#1877F2", "네이버검색": "#03C75A"}
 ACCENT = "#4F46E5"
@@ -49,7 +52,7 @@ def style_money(df, cols):
 df = load_data()
 
 # 사이드바 필터
-st.sidebar.header("필터")
+st.sidebar.header(":material/tune: 필터")
 months = sorted(df["month"].unique())
 sel_months = st.sidebar.multiselect("월 선택", months, default=months,
                                      format_func=lambda m: f"{m}월")
@@ -63,12 +66,19 @@ if d.empty:
     st.warning("선택된 데이터가 없습니다. 필터를 조정하세요.")
     st.stop()
 
-st.title("📊 핀테크 앱 광고 성과 대시보드")
-st.caption("기간 2025-01-01 ~ 2025-12-31 · 109,500행 · 채널 3 · 캠페인 75 · "
-           "퍼널: 노출→클릭→설치→실행→가입→개설→첫거래→반복사용")
+ui.hero(
+    "핀테크 앱 광고 성과 대시보드",
+    "메트릭 하이어라키로 매출·전환의 원인을 단계적으로 추적하고, 채널·캠페인·소재까지 드릴다운합니다.",
+    ["기간 2025.01 ~ 2025.12", "109,500행", "채널 3 · 캠페인 75",
+     "퍼널: 노출→클릭→설치→실행→가입→개설→첫거래→반복사용"],
+)
 
-tabs = st.tabs(["📌 Overview", "🔻 Metric Hierarchy", "📡 Channel Analysis",
-                "🎯 Campaign Analysis", "🧩 Ad Group & Creative", "💡 Insights"])
+tabs = st.tabs([":material/dashboard: Overview",
+                ":material/account_tree: Metric Hierarchy",
+                ":material/hub: Channel",
+                ":material/campaign: Campaign",
+                ":material/category: Ad Group & Creative",
+                ":material/lightbulb: Insights"])
 
 # ════════════════════════════════════════════════════════
 # 1. OVERVIEW
@@ -389,13 +399,19 @@ with tabs[5]:
     st.caption("각 인사이트 = 현상 → 근거 데이터 → 원인 해석(메트릭 하이어라키) → 추천 액션")
     tagcolors = {"시간": "🟦", "퍼널": "🟥", "채널": "🟩", "그룹": "🟪",
                  "소재": "🟧", "캠페인": "🟨"}
+    prio_badge = {"High": "🔴 High", "Medium": "🟡 Medium", "Low": "⚪ Low"}
+    c1, c2 = st.columns([3, 2])
     all_tags = sorted({i["tag"] for i in INSIGHTS})
-    pick = st.multiselect("주제 필터", all_tags, default=all_tags)
+    pick = c1.multiselect("주제 필터", all_tags, default=all_tags)
+    only_high = c2.toggle("High 우선순위만 보기", value=False)
     for ins in INSIGHTS:
         if ins["tag"] not in pick:
             continue
-        with st.expander(f"#{ins['no']}  {tagcolors.get(ins['tag'],'')} {ins['title']}",
-                         expanded=(ins["no"] <= 3)):
+        if only_high and ins["priority"] != "High":
+            continue
+        title = (f"[{prio_badge[ins['priority']]}]  #{ins['no']}  "
+                 f"{tagcolors.get(ins['tag'],'')} {ins['title']}")
+        with st.expander(title, expanded=(ins["priority"] == "High")):
             st.markdown(f"**🔎 발견된 현상**  \n{ins['phenomenon']}")
             st.markdown(f"**📊 근거 데이터**  \n{ins['evidence']}")
             st.markdown(f"**🧠 원인 해석**  \n{ins['cause']}")
@@ -403,12 +419,13 @@ with tabs[5]:
 
     st.divider()
     st.markdown("#### 요약 — 한 장의 액션 플랜")
+    st.caption("표현은 단정 대신 '검토/추정' 기준. 수치는 전수 집계(정확).")
     st.markdown("""
-| 우선순위 | 액션 | 근거 인사이트 | 기대효과 |
-|---|---|---|---|
-| 1 | 계좌개설→첫거래 온보딩 강화 | #3 | 최대 병목(51%) 개선, 반복사용 직결 |
-| 2 | 예산 구글>페북>네이버 재배분 | #4·#10 | 첫거래 CPA 최대 3.6배 효율差 회수 |
-| 3 | 캠페인 최적화 이벤트를 첫거래로 하향 | #8 | 가입 함정 탈출, 실수익 행동 증대 |
-| 4 | 리타겟·영상 비중 확대 | #6·#7 | 설치 전환 1.3배, 전 퍼널 효율↑ |
-| 5 | 분기말 예산 평탄화 + 입찰 자동화 | #1·#2·#9 | 한계효율·CPM 인플레이션 방어 |
+| 우선순위 | 액션 | 근거 인사이트 | 기대효과 | 주의점 |
+|---|---|---|---|---|
+| 🔴 1 | 계좌개설→첫거래 온보딩 강화 | #3 | 최대 병목(약 51%) 개선, 반복사용과 직결 | 리워드 비용 관리, 어뷰징 방지 |
+| 🔴 2 | 예산 구글>페북>네이버 재배분 | #4·#10 | 첫거래 CPA 효율 격차(약 3.6배) 회수 | 네이버 브랜드 방어 트래픽은 유지 |
+| 🔴 3 | 캠페인 최적화 이벤트를 첫거래로 하향 | #8 | 가입 편중 완화, 실수익 행동 증대 | 학습 데이터 충분 확보까지 단가 변동 |
+| 🟡 4 | 리타겟·영상 비중 확대 | #6·#7 | 설치 전환 약 1.3배, 퍼널 전반 효율↑ | 리타겟 풀 소진·영상 제작비 고려 |
+| 🟡 5 | 분기말 예산 평탄화 + 입찰 자동화 | #1·#2·#9 | 한계효율·CPM 상승 방어 | 분기 KPI 일정과의 조율 필요 |
 """)
