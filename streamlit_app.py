@@ -202,16 +202,46 @@ with tabs[1]:
     st.caption("최종 결과(반복사용)를 상위에 두고 **반복사용 = 첫거래 × CVR**, "
                "**첫거래 = 계좌개설 × CVR** … 식으로 단계별 원인 지표까지 분해합니다. "
                "왼쪽 보라색 = 비용 지표(÷비용), 화살표 라벨 = 전환율(×CVR).")
-    t_all = agg(d, None).iloc[0]
+    dim_label = st.radio(
+        "🔎 드릴다운 기준 — 선택하면 트리·퍼널·병목이 그 세그먼트 기준으로 다시 계산됩니다",
+        ["전체", "채널", "캠페인목적", "광고그룹", "소재"], horizontal=True)
+    dim_map = {"채널": "channel", "캠페인목적": "campaign_objective",
+               "광고그룹": "ad_group", "소재": "creative_format"}
+    if dim_label == "전체":
+        seg, d_seg = "전체", d
+    else:
+        col = dim_map[dim_label]
+        vals = list(d[col].dropna().unique())
+        seg = st.radio(f"{dim_label} 선택", vals, horizontal=True, key="seg_val")
+        d_seg = d[d[col] == seg]
+    t_all = agg(d_seg, None).iloc[0]
+    ov = agg(d, None).iloc[0]
     st.graphviz_chart(build_hierarchy_dot(t_all), use_container_width=True)
-    cc = st.columns(3)
+
+    def _delta(cur, base, pp=False, money=False):
+        if dim_label == "전체":
+            return None
+        diff = cur - base
+        if pp:
+            return f"{diff*100:+.1f}p"
+        return f"{diff:+,.0f}원" if money else f"{diff:+,.0f}"
+
+    cc = st.columns(4)
     cc[0].metric("최종 결과 · 반복사용", big(t_all["반복사용"]))
-    cc[1].metric("🔻 최대 병목 · 첫거래/계좌개설", pct(t_all["CVR_첫거래"], 1))
-    cc[2].metric("반복사용 1건당 비용 · CPA 반복", won(t_all["CPA_반복"]))
+    cc[1].metric("개설 전환 (개설/가입)", pct(t_all["CVR_개설"], 1),
+                 delta=_delta(t_all["CVR_개설"], ov["CVR_개설"], pp=True))
+    cc[2].metric("🔻 첫거래 전환 (첫거래/개설)", pct(t_all["CVR_첫거래"], 1),
+                 delta=_delta(t_all["CVR_첫거래"], ov["CVR_첫거래"], pp=True))
+    cc[3].metric("반복 1건당 비용 · CPA 반복", won(t_all["CPA_반복"]),
+                 delta=_delta(t_all["CPA_반복"], ov["CPA_반복"], money=True),
+                 delta_color="inverse")
+    if dim_label != "전체":
+        st.caption(f"**{seg}** 기준 · △ = 전체 평균 대비 차이(전환율은 ↑, 비용은 ↓일수록 좋음). "
+                   f"예: 캠페인목적=회원가입을 고르면 '개설 전환'이 전체보다 크게 낮아 병목 원인이 드러납니다.")
 
     st.divider()
-    st.markdown("#### 퍼널 시각화 & 단계별 전환율")
-    fs = funnel_steps(d)
+    st.markdown(f"#### 퍼널 시각화 & 단계별 전환율 — {seg}")
+    fs = funnel_steps(d_seg)
     left, right = st.columns([3, 2])
     with left:
         fig = go.Figure(go.Funnel(
@@ -235,7 +265,7 @@ with tabs[1]:
                  f"({post.loc[worst]*100:.0f}% 전환)")
 
     st.divider()
-    st.markdown("**CPA = CPM ÷ CTR ÷ 전환율 — 단가 분해 (월별)**")
+    st.markdown("**CPA = CPM ÷ CTR ÷ 전환율 — 단가 분해 (월별, 전체 기준)**")
     m = agg(d, "month").sort_values("month")
     ccol = st.columns(3)
     with ccol[0]:
@@ -383,14 +413,18 @@ with tabs[3]:
         st.plotly_chart(fig, width="stretch")
     st.caption("하위는 대부분 네이버검색_회원가입 캠페인, 상위는 구글_계좌개설 캠페인에 집중.")
 
-    st.markdown("**캠페인 목적별 첫거래 CPA 분포 (캠페인 75개)**")
-    fig = px.box(cid, x="campaign_objective", y="CPA_첫거래", color="campaign_objective",
-                 points="all", color_discrete_map={"회원가입": "#4F46E5", "계좌개설": "#F59E0B"},
-                 labels={"campaign_objective": "캠페인 목적", "CPA_첫거래": "첫거래 CPA (원)"})
-    fig.update_layout(height=400, margin=dict(t=20), showlegend=False)
+    st.markdown("**같은 채널 안에서 목적 비교 — 첫거래 CPA (낮을수록 효율↑)**")
+    co = agg(d, ["channel", "campaign_objective"])
+    co["channel"] = pd.Categorical(co["channel"], CHANNEL_ORDER, ordered=True)
+    co = co.sort_values("channel")
+    fig = px.bar(co, x="channel", y="CPA_첫거래", color="campaign_objective", barmode="group",
+                 text_auto=",.0f", color_discrete_map={"회원가입": "#4F46E5", "계좌개설": "#F59E0B"},
+                 labels={"channel": "채널", "CPA_첫거래": "첫거래 CPA (원)", "campaign_objective": "목적"})
+    fig.update_traces(textposition="outside", cliponaxis=False)
+    fig.update_layout(height=400, margin=dict(t=20), legend_title="목적")
     st.plotly_chart(fig, width="stretch")
-    st.caption("각 점 = 캠페인 1개. '회원가입' 목적은 첫거래 CPA가 크게 높은 구간에 몰려 있고, "
-               "'계좌개설' 목적은 낮은 구간에 분포 → 가입은 싸게 사도 첫거래까지 잘 안 내려감 (인사이트 #8).")
+    st.caption("동일 채널 안에서 비교(CLAUDE.md 규칙: AB는 같은 채널 내에서). 세 채널 모두 '회원가입' 목적의 "
+               "첫거래 CPA가 '계좌개설'보다 높음 → 가입은 싸게 사도 첫 거래까지 잘 이어지지 않음 (인사이트 #8).")
 
 # ════════════════════════════════════════════════════════
 # 5. AD GROUP & CREATIVE
