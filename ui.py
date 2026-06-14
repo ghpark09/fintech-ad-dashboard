@@ -19,7 +19,7 @@ html, body, [class*="css"], [data-testid="stAppViewContainer"],
   font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
 }
 
-.block-container { padding-top: 1.4rem; padding-bottom: 3rem; max-width: 1520px; }
+.block-container { padding-top: 2.6rem; padding-bottom: 3rem; max-width: 1520px; }
 
 /* ── Hero ── */
 .hero {
@@ -71,6 +71,25 @@ html, body, [class*="css"], [data-testid="stAppViewContainer"],
 /* ── Sidebar polish ── */
 [data-testid="stSidebar"] [data-testid="stMultiSelect"] span { font-size:13px; }
 section[data-testid="stSidebar"] { box-shadow: 1px 0 0 #ECEEF4; }
+
+/* ── Insight cards ── */
+.ins-wrap { display:flex; flex-direction:column; gap:14px; }
+.ins-card { background:#fff; border:1px solid #E9EBF2; border-radius:16px;
+  padding:16px 18px; box-shadow:0 1px 3px rgba(16,24,40,.05); transition:box-shadow .16s ease; }
+.ins-card:hover { box-shadow:0 12px 28px -16px rgba(16,24,40,.4); }
+.ins-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+.ins-prio { font-size:10.5px; font-weight:800; padding:3px 10px; border-radius:999px; letter-spacing:.5px; }
+.ins-tag { font-size:11px; font-weight:700; padding:3px 10px; border-radius:999px; }
+.ins-no { font-size:13px; font-weight:800; color:#CBD5E1; }
+.ins-title { font-size:15.5px; font-weight:700; color:#101828; flex:1; min-width:200px; }
+.ins-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:10px; }
+.ins-cell { background:#F8F9FD; border-radius:12px; padding:11px 13px; font-size:12.5px;
+  color:#475467; line-height:1.55; display:flex; flex-direction:column; gap:5px; }
+.ins-k { font-size:10px; font-weight:800; color:#98A2B3; letter-spacing:.5px; }
+.ins-act { background:#ECFDF3; border:1px solid #D1FADF; border-radius:12px; padding:11px 13px;
+  font-size:12.5px; color:#05603A; line-height:1.6; }
+.ins-actk { font-weight:800; color:#039855; margin-right:6px; }
+@media (max-width:900px){ .ins-grid{ grid-template-columns:1fr; } }
 </style>
 """
 
@@ -112,3 +131,31 @@ def hero(title: str, subtitle: str, chips: list[str]):
         f'<div class="hero"><h1>{title}</h1><p>{subtitle}</p>'
         f'<div class="chips">{chip_html}</div></div>'
     )
+
+
+TAG_COLORS = {"시간": "#3B82F6", "퍼널": "#EF4444", "채널": "#10B981",
+              "그룹": "#8B5CF6", "소재": "#F59E0B", "캠페인": "#EC4899"}
+
+
+def insight_cards(items: list[dict]):
+    """인사이트를 컬러 카드(중요도 좌측 바 + 카테고리 칩 + 3열 근거 + 액션)로 렌더."""
+    cards = []
+    for ins in items:
+        pc = "#EF4444" if ins["priority"] == "High" else "#F59E0B"
+        tc = TAG_COLORS.get(ins["tag"], "#64748B")
+        cards.append(
+            f'<div class="ins-card" style="border-left:5px solid {pc}">'
+            f'<div class="ins-head">'
+            f'<span class="ins-prio" style="background:{pc}1A;color:{pc}">{ins["priority"].upper()}</span>'
+            f'<span class="ins-tag" style="background:{tc}1A;color:{tc}">{ins["tag"]}</span>'
+            f'<span class="ins-no">#{ins["no"]}</span>'
+            f'<span class="ins-title">{ins["title"]}</span></div>'
+            f'<div class="ins-grid">'
+            f'<div class="ins-cell"><span class="ins-k">🔎 발견된 현상</span><span>{ins["phenomenon"]}</span></div>'
+            f'<div class="ins-cell"><span class="ins-k">📊 근거 데이터</span><span>{ins["evidence"]}</span></div>'
+            f'<div class="ins-cell"><span class="ins-k">🧠 원인 해석</span><span>{ins["cause"]}</span></div>'
+            f'</div>'
+            f'<div class="ins-act"><span class="ins-actk">✅ 추천 액션</span>{ins["action"]}</div>'
+            f'</div>'
+        )
+    st.html('<div class="ins-wrap">' + "".join(cards) + "</div>")

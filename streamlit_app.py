@@ -48,6 +48,56 @@ def big(x):
 def style_money(df, cols):
     return df.style.format({c: "{:,.0f}" for c in cols})
 
+def build_hierarchy_dot(t):
+    """메트릭 하이어라키 분해 트리(DOT). 반복사용 = 첫거래 × CVR … 식으로 내려감."""
+    # (하위단계, 상위단계, 전환율키)
+    chain = [
+        ("광고노출", "광고클릭", "CTR"),
+        ("광고클릭", "앱설치", "CVR_설치"),
+        ("앱설치", "앱실행", "CVR_실행"),
+        ("앱실행", "회원가입", "CVR_가입"),
+        ("회원가입", "계좌개설", "CVR_개설"),
+        ("계좌개설", "첫거래", "CVR_첫거래"),
+        ("첫거래", "반복사용", "CVR_반복"),
+    ]
+    cost = {"광고노출": ("CPM", "CPM"), "광고클릭": ("CPC", "CPC"), "앱설치": ("CPI", "CPI"),
+            "회원가입": ("CPA 가입", "CPA_가입"), "계좌개설": ("CPA 개설", "CPA_개설"),
+            "첫거래": ("CPA 첫거래", "CPA_첫거래"), "반복사용": ("CPA 반복", "CPA_반복")}
+    stages = ["광고노출", "광고클릭", "앱설치", "앱실행", "회원가입", "계좌개설", "첫거래", "반복사용"]
+
+    def vnode(s):
+        if s == "반복사용":
+            fc, ec = "#DCFCE7", "#10B981"; star = "⭐ "
+        elif s == "첫거래":
+            fc, ec = "#FEE2E2", "#EF4444"; star = "🔻 "
+        else:
+            fc, ec = "#EEF0FF", "#C7CCF7"; star = ""
+        return (f'"v_{s}" [label="{star}{s}\\n{big(t[s])}", fillcolor="{fc}", '
+                f'color="{ec}", penwidth=1.6];')
+
+    lines = [
+        'digraph G {', 'rankdir=LR; bgcolor="transparent"; nodesep=0.28; ranksep=0.7;',
+        'node [shape=box, style="rounded,filled", fontname="Pretendard", fontsize=12, '
+        'width=1.2, height=0.5, margin="0.1,0.05"];',
+        'edge [fontname="Pretendard", fontsize=11, color="#B6BCE0", fontcolor="#4F46E5", penwidth=1.4];',
+    ]
+    for s in stages:
+        lines.append(vnode(s))
+    # 비용 노드
+    for s, (lbl, key) in cost.items():
+        lines.append(f'"c_{s}" [label="{lbl}\\n{won(t[key])}", fillcolor="#F3E8FF", '
+                     f'color="#E2CFFB", fontsize=10];')
+    # 전환 엣지 (× CVR)
+    for lo, hi, rk in chain:
+        lines.append(f'"v_{lo}" -> "v_{hi}" [label="× {pct(t[rk],1)}", penwidth=1.6];')
+    # 비용 엣지 (÷ 비용, 같은 행 정렬)
+    for s, (lbl, key) in cost.items():
+        lines.append(f'{{ rank=same; "c_{s}"; "v_{s}"; }}')
+        lines.append(f'"c_{s}" -> "v_{s}" [style=dashed, arrowhead=none, '
+                     f'color="#D6C2F5", label="÷비용", fontcolor="#7C3AED"];')
+    lines.append("}")
+    return "\n".join(lines)
+
 # ── 데이터 ────────────────────────────────────────────────
 df = load_data()
 
@@ -148,10 +198,19 @@ with tabs[0]:
 # 2. METRIC HIERARCHY
 # ════════════════════════════════════════════════════════
 with tabs[1]:
-    st.subheader("메트릭 하이어라키 — 퍼널 드릴다운")
-    st.caption("노출 → 클릭 → 설치 → 실행 → 가입 → 개설 → **첫거래** → 반복사용. "
-               "단계별 전환율로 병목을 추적합니다.")
+    st.subheader("메트릭 하이어라키 — 지표 분해 트리")
+    st.caption("최종 결과(반복사용)를 상위에 두고 **반복사용 = 첫거래 × CVR**, "
+               "**첫거래 = 계좌개설 × CVR** … 식으로 단계별 원인 지표까지 분해합니다. "
+               "왼쪽 보라색 = 비용 지표(÷비용), 화살표 라벨 = 전환율(×CVR).")
+    t_all = agg(d, None).iloc[0]
+    st.graphviz_chart(build_hierarchy_dot(t_all), use_container_width=True)
+    cc = st.columns(3)
+    cc[0].metric("최종 결과 · 반복사용", big(t_all["반복사용"]))
+    cc[1].metric("🔻 최대 병목 · 첫거래/계좌개설", pct(t_all["CVR_첫거래"], 1))
+    cc[2].metric("반복사용 1건당 비용 · CPA 반복", won(t_all["CPA_반복"]))
 
+    st.divider()
+    st.markdown("#### 퍼널 시각화 & 단계별 전환율")
     fs = funnel_steps(d)
     left, right = st.columns([3, 2])
     with left:
@@ -246,15 +305,25 @@ with tabs[2]:
                           showlegend=False, margin=dict(t=40))
         st.plotly_chart(fig, width="stretch")
 
-    st.markdown("**효율 산점도 — CPC vs CVR(설치) (버블=광고비)**")
-    fig = px.scatter(c, x="CPC", y="CVR_설치", size="광고비", color="channel",
-                     color_discrete_map=PALETTE, text="channel", size_max=60)
-    fig.update_traces(textposition="top center")
-    fig.update_layout(height=380, margin=dict(t=20),
-                      xaxis_title="CPC(클릭단가, 원)", yaxis_title="설치 전환율")
+    st.markdown("**채널 효율 지도 — 가로:클릭단가(CPC) ↔ 세로:설치전환율(CVR)**")
+    mx, my = c["CPC"].mean(), c["CVR_설치"].mean()
+    fig = px.scatter(c, x="CPC", y="CVR_설치", color="channel",
+                     color_discrete_map=PALETTE, text="channel")
+    fig.update_traces(textposition="top center", marker=dict(size=22, line=dict(width=2, color="white")))
+    fig.add_vline(x=mx, line_dash="dot", line_color="#CBD5E1")
+    fig.add_hline(y=my, line_dash="dot", line_color="#CBD5E1")
+    fig.add_annotation(x=c["CPC"].min(), y=c["CVR_설치"].max(), xanchor="left",
+                       text="✅ 효율적<br>저단가·고전환", showarrow=False,
+                       font=dict(color="#10B981", size=11), align="left")
+    fig.add_annotation(x=c["CPC"].max(), y=c["CVR_설치"].min(), xanchor="right",
+                       text="⚠ 비효율<br>고단가·저전환", showarrow=False,
+                       font=dict(color="#EF4444", size=11), align="right")
+    fig.update_layout(height=400, margin=dict(t=20), showlegend=False,
+                      xaxis_title="CPC (클릭단가, 원) →", yaxis_title="설치 전환율 ↑")
+    fig.update_yaxes(tickformat=".0%")
     st.plotly_chart(fig, width="stretch")
-    st.info("구글: 저단가·고전환(좌상단, 최효율) / 네이버검색: 고단가·저전환(우하단). "
-            "첫거래 CPA 기준 구글이 네이버의 약 3.6배 효율 (인사이트 #4)")
+    st.caption("점선 = 채널 평균. 좌상단일수록 효율적 → 구글이 최효율, 네이버검색은 우하단(고단가·저전환). "
+               "첫거래 CPA 기준 구글이 네이버의 약 3.6배 효율 (인사이트 #4).")
 
     st.divider()
     st.markdown("**채널별 월 추이 — CPA 첫거래**")
@@ -314,21 +383,14 @@ with tabs[3]:
         st.plotly_chart(fig, width="stretch")
     st.caption("하위는 대부분 네이버검색_회원가입 캠페인, 상위는 구글_계좌개설 캠페인에 집중.")
 
-    st.markdown("**효율 지도 — 광고비(규모) vs 첫거래 CPA(효율) · 버블=반복사용**")
-    med_x, med_y = cid["광고비"].median(), cid["CPA_첫거래"].median()
-    fig = px.scatter(cid, x="광고비", y="CPA_첫거래", size="첫거래",
-                     color="campaign_objective", hover_name="campaign_id", size_max=34,
-                     color_discrete_sequence=["#4F46E5", "#F59E0B"],
-                     labels={"CPA_첫거래": "첫거래 CPA (낮을수록 효율↑)", "광고비": "광고비(규모)"})
-    fig.add_hline(y=med_y, line_dash="dot", line_color="#CBD5E1")
-    fig.add_vline(x=med_x, line_dash="dot", line_color="#CBD5E1")
-    fig.add_annotation(x=cid["광고비"].max(), y=cid["CPA_첫거래"].max(),
-                       text="고비용·저효율 ⚠", showarrow=False, font=dict(color="#EF4444", size=11),
-                       xanchor="right")
-    fig.update_layout(height=420, margin=dict(t=20), legend_title="목적")
+    st.markdown("**캠페인 목적별 첫거래 CPA 분포 (캠페인 75개)**")
+    fig = px.box(cid, x="campaign_objective", y="CPA_첫거래", color="campaign_objective",
+                 points="all", color_discrete_map={"회원가입": "#4F46E5", "계좌개설": "#F59E0B"},
+                 labels={"campaign_objective": "캠페인 목적", "CPA_첫거래": "첫거래 CPA (원)"})
+    fig.update_layout(height=400, margin=dict(t=20), showlegend=False)
     st.plotly_chart(fig, width="stretch")
-    st.caption("점선=중앙값. 우상단(돈 많이 쓰는데 첫거래 CPA 높음)이 우선 점검 대상 — "
-               "대부분 네이버검색·회원가입 목적 캠페인이 위치 (인사이트 #4·#8).")
+    st.caption("각 점 = 캠페인 1개. '회원가입' 목적은 첫거래 CPA가 크게 높은 구간에 몰려 있고, "
+               "'계좌개설' 목적은 낮은 구간에 분포 → 가입은 싸게 사도 첫거래까지 잘 안 내려감 (인사이트 #8).")
 
 # ════════════════════════════════════════════════════════
 # 5. AD GROUP & CREATIVE
@@ -395,13 +457,17 @@ with tabs[4]:
     cfm["CTR지수"] = cfm["CTR"] / cfm.groupby("creative_format")["CTR"].transform("first") * 100
     fig = px.line(cfm, x="month", y="CTR지수", color="creative_format", markers=True,
                   color_discrete_sequence=["#4F46E5", "#10B981", "#3B82F6", "#F59E0B"])
-    fig.add_hline(y=100, line_dash="dash", line_color="#94A3B8",
-                  annotation_text="1월 기준선", annotation_position="top left")
-    fig.update_layout(height=340, xaxis_title="월", yaxis_title="CTR 지수")
-    fig.update_yaxes(range=[85, 115])
+    fig.add_hline(y=100, line_dash="dash", line_color="#EF4444",
+                  annotation_text="1월 기준(100)", annotation_position="top left")
+    lo = max(90, np.floor(cfm["CTR지수"].min()) - 1)
+    hi = min(110, np.ceil(cfm["CTR지수"].max()) + 1)
+    fig.update_layout(height=360, xaxis_title="월", yaxis_title="CTR 지수 (1월=100)")
+    fig.update_yaxes(range=[lo, hi], dtick=1)
+    fig.update_xaxes(dtick=1)
     st.plotly_chart(fig, width="stretch")
-    st.caption("각 소재의 1월 CTR을 100으로 환산. 12개월 내내 100 부근을 유지 → "
-               "피로도에 의한 CTR 하락은 관측되지 않음. 단가 상승은 소재보다 CPM 요인으로 추정 (인사이트 #9).")
+    st.caption(f"각 소재의 1월 CTR을 100으로 환산(축 {lo:.0f}~{hi:.0f}, 1단위). "
+               "월별 등락이 ±2% 이내로 작고 추세적 하락이 없음 → 피로도에 의한 CTR 저하는 "
+               "관측되지 않음. 단가 상승은 소재보다 CPM 요인으로 추정 (인사이트 #9).")
 
     st.markdown("**네이버 브랜드KW vs 일반KW 상세 (분리)**")
     nv = agg(d[d["channel"] == "네이버검색"], "creative_format")
@@ -422,25 +488,20 @@ with tabs[4]:
 with tabs[5]:
     st.subheader("💡 핵심 인사이트 10선")
     st.caption("각 인사이트 = 현상 → 근거 데이터 → 원인 해석(메트릭 하이어라키) → 추천 액션")
-    tagcolors = {"시간": "🟦", "퍼널": "🟥", "채널": "🟩", "그룹": "🟪",
-                 "소재": "🟧", "캠페인": "🟨"}
-    prio_badge = {"High": "🔴 High", "Medium": "🟡 Medium", "Low": "⚪ Low"}
-    c1, c2 = st.columns([3, 2])
     all_tags = sorted({i["tag"] for i in INSIGHTS})
+    c1, c2 = st.columns([3, 2])
     pick = c1.multiselect("주제 필터", all_tags, default=all_tags)
-    only_high = c2.toggle("High 우선순위만 보기", value=False)
-    for ins in INSIGHTS:
-        if ins["tag"] not in pick:
-            continue
-        if only_high and ins["priority"] != "High":
-            continue
-        title = (f"[{prio_badge[ins['priority']]}]  #{ins['no']}  "
-                 f"{tagcolors.get(ins['tag'],'')} {ins['title']}")
-        with st.expander(title, expanded=(ins["priority"] == "High")):
-            st.markdown(f"**🔎 발견된 현상**  \n{ins['phenomenon']}")
-            st.markdown(f"**📊 근거 데이터**  \n{ins['evidence']}")
-            st.markdown(f"**🧠 원인 해석**  \n{ins['cause']}")
-            st.success(f"**✅ 추천 액션**  \n{ins['action']}")
+    only_high = c2.toggle("🔴 High 우선순위만 보기", value=False)
+    n_high = sum(1 for i in INSIGHTS if i["priority"] == "High")
+    st.caption(f"좌측 컬러 바 = 중요도(🔴 High {n_high}개 · 🟡 Medium {10-n_high}개), "
+               "칩 = 분석 주제. High부터 정렬됩니다.")
+    items = [i for i in INSIGHTS if i["tag"] in pick
+             and (not only_high or i["priority"] == "High")]
+    items = sorted(items, key=lambda i: (i["priority"] != "High", i["no"]))
+    if items:
+        ui.insight_cards(items)
+    else:
+        st.caption("선택된 주제의 인사이트가 없습니다.")
 
     st.divider()
     st.markdown("#### 요약 — 한 장의 액션 플랜")
