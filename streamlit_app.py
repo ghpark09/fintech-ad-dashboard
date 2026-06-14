@@ -57,8 +57,7 @@ months = sorted(df["month"].unique())
 sel_months = st.sidebar.multiselect("월 선택", months, default=months,
                                      format_func=lambda m: f"{m}월")
 sel_channels = st.sidebar.multiselect("채널", CHANNEL_ORDER, default=CHANNEL_ORDER)
-brand_split = st.sidebar.checkbox("네이버 브랜드KW 분리 표기", value=True)
-st.sidebar.caption("CLAUDE.md 규칙: 네이버 브랜드KW는 분리 분석")
+st.sidebar.caption("네이버 브랜드KW는 소재 탭에서 항상 분리 분석 (CLAUDE.md 규칙)")
 
 mask = df["month"].isin(sel_months or months) & df["channel"].isin(sel_channels or CHANNEL_ORDER)
 d = df[mask].copy()
@@ -315,12 +314,21 @@ with tabs[3]:
         st.plotly_chart(fig, width="stretch")
     st.caption("하위는 대부분 네이버검색_회원가입 캠페인, 상위는 구글_계좌개설 캠페인에 집중.")
 
-    st.markdown("**산점도 — 광고비 vs 첫거래 (버블=반복사용, 색=목적)**")
-    fig = px.scatter(cid, x="광고비", y="첫거래", size="반복사용",
-                     color="campaign_objective", hover_name="campaign_id", size_max=40,
-                     color_discrete_sequence=["#4F46E5", "#F59E0B"])
-    fig.update_layout(height=400, margin=dict(t=20), legend_title="목적")
+    st.markdown("**효율 지도 — 광고비(규모) vs 첫거래 CPA(효율) · 버블=반복사용**")
+    med_x, med_y = cid["광고비"].median(), cid["CPA_첫거래"].median()
+    fig = px.scatter(cid, x="광고비", y="CPA_첫거래", size="첫거래",
+                     color="campaign_objective", hover_name="campaign_id", size_max=34,
+                     color_discrete_sequence=["#4F46E5", "#F59E0B"],
+                     labels={"CPA_첫거래": "첫거래 CPA (낮을수록 효율↑)", "광고비": "광고비(규모)"})
+    fig.add_hline(y=med_y, line_dash="dot", line_color="#CBD5E1")
+    fig.add_vline(x=med_x, line_dash="dot", line_color="#CBD5E1")
+    fig.add_annotation(x=cid["광고비"].max(), y=cid["CPA_첫거래"].max(),
+                       text="고비용·저효율 ⚠", showarrow=False, font=dict(color="#EF4444", size=11),
+                       xanchor="right")
+    fig.update_layout(height=420, margin=dict(t=20), legend_title="목적")
     st.plotly_chart(fig, width="stretch")
+    st.caption("점선=중앙값. 우상단(돈 많이 쓰는데 첫거래 CPA 높음)이 우선 점검 대상 — "
+               "대부분 네이버검색·회원가입 목적 캠페인이 위치 (인사이트 #4·#8).")
 
 # ════════════════════════════════════════════════════════
 # 5. AD GROUP & CREATIVE
@@ -346,50 +354,67 @@ with tabs[4]:
     st.info("리타겟이 전 채널에서 설치 전환 1.3배·CPA 우위. 논타겟은 상단 인지용으로 평가 (인사이트 #6)")
 
     st.divider()
-    st.markdown("### 소재 (이미지 vs 영상 vs 키워드)")
-    if brand_split:
-        cf = agg(d, "creative_format")
-    else:
-        d2 = d.copy()
-        d2["creative_format"] = d2["creative_format"].replace(
-            {"브랜드키워드": "키워드", "일반키워드": "키워드"})
-        cf = agg(d2, "creative_format")
+    st.markdown("### 소재 분석")
+    st.caption("디스플레이(이미지·영상, 구글·페북)와 검색(키워드, 네이버)은 CTR 규모가 10배 이상 달라 "
+               "**각각 별도 축**으로 비교합니다. 같은 축에 두면 차이가 묻힘.")
+    cf = agg(d, "creative_format")
+    metric_opt = st.segmented_control(
+        "비교 지표", ["CTR", "CVR_설치", "CPA_가입", "CPA_첫거래"], default="CTR",
+        key="cf_metric")
+    metric_opt = metric_opt or "CTR"
+    is_rate = metric_opt in ("CTR", "CVR_설치")
+    txt = ".2%" if is_rate else ",.0f"
+    better = "높을수록 좋음 ↑" if is_rate else "낮을수록 좋음 ↓"
+
+    def fmt_bar(sub, title, colors):
+        sub = sub[sub["creative_format"].isin(colors)]
+        if sub.empty:
+            st.caption(f"{title}: 선택된 채널 데이터 없음")
+            return
+        order = sub.sort_values(metric_opt, ascending=is_rate)
+        fig = px.bar(order, x="creative_format", y=metric_opt, color="creative_format",
+                     text_auto=txt, color_discrete_map=colors)
+        fig.update_traces(textposition="outside", cliponaxis=False)
+        fig.update_layout(title=f"{title} · {metric_opt}", height=330, showlegend=False,
+                          xaxis_title="", margin=dict(t=46))
+        st.plotly_chart(fig, width="stretch")
 
     a, b = st.columns(2)
     with a:
-        fig = px.bar(cf.sort_values("CTR"), x="CTR", y="creative_format", orientation="h",
-                     color="creative_format", text_auto=".2%",
-                     color_discrete_sequence=INDIGO_SEQ)
-        fig.update_layout(title="소재별 CTR", height=340, showlegend=False,
-                          margin=dict(t=40), yaxis_title="")
-        st.plotly_chart(fig, width="stretch")
+        fmt_bar(cf, "디스플레이 (이미지 vs 영상)",
+                {"이미지": "#94A3B8", "영상": "#4F46E5"})
     with b:
-        fig = px.bar(cf.sort_values("CPA_가입", ascending=False), x="CPA_가입",
-                     y="creative_format", orientation="h", color="creative_format",
-                     text_auto=",.0f", color_discrete_sequence=INDIGO_SEQ)
-        fig.update_layout(title="소재별 CPA 가입", height=340, showlegend=False,
-                          margin=dict(t=40), yaxis_title="")
-        st.plotly_chart(fig, width="stretch")
+        fmt_bar(cf, "검색 (브랜드 vs 일반 키워드)",
+                {"브랜드키워드": "#10B981", "일반키워드": "#CBD5E1"})
+    st.caption(f"선택 지표: **{metric_opt}** ({better}) · "
+               "영상 > 이미지(인사이트 #7), 브랜드KW > 일반KW(인사이트 #5)는 지표를 바꿔도 유지됨.")
 
-    st.markdown("**소재 피로도 점검 — 월별 CTR 추이**")
+    st.markdown("**소재 피로도 점검 — 1월 대비 CTR 지수 (1월 = 100)**")
     cfm = d.groupby(["creative_format", "month"], as_index=False)[BASE].sum()
-    cfm = add_rates(cfm)
-    fig = px.line(cfm, x="month", y="CTR", color="creative_format", markers=True,
-                  color_discrete_sequence=px.colors.qualitative.Set2)
-    fig.update_layout(height=340, xaxis_title="월", margin=dict(t=20))
+    cfm = add_rates(cfm).sort_values(["creative_format", "month"])
+    cfm["CTR지수"] = cfm["CTR"] / cfm.groupby("creative_format")["CTR"].transform("first") * 100
+    fig = px.line(cfm, x="month", y="CTR지수", color="creative_format", markers=True,
+                  color_discrete_sequence=["#4F46E5", "#10B981", "#3B82F6", "#F59E0B"])
+    fig.add_hline(y=100, line_dash="dash", line_color="#94A3B8",
+                  annotation_text="1월 기준선", annotation_position="top left")
+    fig.update_layout(height=340, xaxis_title="월", yaxis_title="CTR 지수")
+    fig.update_yaxes(range=[85, 115])
     st.plotly_chart(fig, width="stretch")
-    st.info("월별 CTR이 평탄 → 소재 피로도 거의 없음. 단가 상승은 소재가 아닌 CPM 문제 (인사이트 #7·#9)")
+    st.caption("각 소재의 1월 CTR을 100으로 환산. 12개월 내내 100 부근을 유지 → "
+               "피로도에 의한 CTR 하락은 관측되지 않음. 단가 상승은 소재보다 CPM 요인으로 추정 (인사이트 #9).")
 
-    if brand_split:
-        st.markdown("**네이버 브랜드KW vs 일반KW (분리)**")
-        nv = agg(d[d["channel"] == "네이버검색"], "creative_format")
+    st.markdown("**네이버 브랜드KW vs 일반KW 상세 (분리)**")
+    nv = agg(d[d["channel"] == "네이버검색"], "creative_format")
+    if not nv.empty:
         show = nv[["creative_format", "광고비", "광고클릭", "회원가입", "첫거래",
                    "CTR", "CVR_설치", "CPA_가입", "CPA_첫거래"]]
         st.dataframe(show.style.format({
             "광고비": "{:,.0f}", "광고클릭": "{:,.0f}", "회원가입": "{:,.0f}", "첫거래": "{:,.0f}",
             "CTR": "{:.2%}", "CVR_설치": "{:.1%}", "CPA_가입": "{:,.0f}", "CPA_첫거래": "{:,.0f}"}),
             width="stretch", hide_index=True)
-        st.caption("브랜드KW가 일반KW보다 CPA 약 30% 효율적 (인사이트 #5)")
+        st.caption("브랜드KW가 일반KW보다 CPA 약 30% 효율적 (인사이트 #5) · CLAUDE.md 규칙: 네이버 브랜드KW는 항상 분리")
+    else:
+        st.caption("네이버검색이 필터에서 제외되어 표시할 데이터가 없습니다.")
 
 # ════════════════════════════════════════════════════════
 # 6. INSIGHTS

@@ -82,6 +82,8 @@ def _register_plotly_template():
             colorway=CATEGORICAL,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
+            barcornerradius=6,
+            bargap=0.34,
             margin=dict(t=42, r=14, b=8, l=8),
             xaxis=dict(gridcolor=GRID, zeroline=False, linecolor=GRID,
                        tickfont=dict(color=MUTED), title_font=dict(color=MUTED, size=12)),
